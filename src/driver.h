@@ -1,6 +1,5 @@
 /*
  * Copyright 2008 Tungsten Graphics, Inc., Cedar Park, Texas.
- * Copyright 2019 NVIDIA CORPORATION
  * All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,8 +24,7 @@
  *
  *
  * Author: Alan Hourihane <alanh@tungstengraphics.com>
- * Additional contributors:
- *   Aaron Plattner <aplattner@nvidia.com>
+ *
  */
 
 #include <errno.h>
@@ -35,7 +33,7 @@
 #include <xf86Crtc.h>
 #include <damage.h>
 #include <X11/extensions/dpmsconst.h>
-#include <shadow.h>
+
 #ifdef GLAMOR_HAS_GBM
 #define GLAMOR_FOR_XORG 1
 #include "glamor.h"
@@ -44,10 +42,6 @@
 
 #include "drmmode_display.h"
 #define MS_LOGLEVEL_DEBUG 4
-
-struct ms_vrr_priv {
-    Bool variable_refresh;
-};
 
 typedef enum {
     OPTION_SW_CURSOR,
@@ -58,8 +52,6 @@ typedef enum {
     OPTION_ZAPHOD_HEADS,
     OPTION_DOUBLE_SHADOW,
     OPTION_ATOMIC,
-    OPTION_VARIABLE_REFRESH,
-    OPTION_USE_GAMMA_LUT,
 } modesettingOpts;
 
 typedef struct
@@ -130,53 +122,7 @@ typedef struct _modesettingRec {
 
     Bool kms_has_modifiers;
 
-    /* VRR support */
-    Bool vrr_support;
-    WindowPtr flip_window;
-
-    Bool is_connector_vrr_capable;
-    uint32_t connector_prop_id;
-
-    /* shadow API */
-    struct {
-        Bool (*Setup)(ScreenPtr);
-        Bool (*Add)(ScreenPtr, PixmapPtr, ShadowUpdateProc, ShadowWindowProc,
-                    int, void *);
-        void (*Remove)(ScreenPtr, PixmapPtr);
-        void (*Update32to24)(ScreenPtr, shadowBufPtr);
-        void (*UpdatePacked)(ScreenPtr, shadowBufPtr);
-    } shadow;
-
-#ifdef GLAMOR_HAS_GBM
-    /* glamor API */
-    struct {
-        Bool (*back_pixmap_from_fd)(PixmapPtr, int, CARD16, CARD16, CARD16,
-                                    CARD8, CARD8);
-        void (*block_handler)(ScreenPtr);
-        void (*clear_pixmap)(PixmapPtr);
-        Bool (*egl_create_textured_pixmap)(PixmapPtr, int, int);
-        Bool (*egl_create_textured_pixmap_from_gbm_bo)(PixmapPtr,
-                                                       struct gbm_bo *,
-                                                       Bool);
-        void (*egl_exchange_buffers)(PixmapPtr, PixmapPtr);
-        struct gbm_device *(*egl_get_gbm_device)(ScreenPtr);
-        Bool (*egl_init)(ScrnInfoPtr, int);
-        void (*finish)(ScreenPtr);
-        struct gbm_bo *(*gbm_bo_from_pixmap)(ScreenPtr, PixmapPtr);
-        Bool (*init)(ScreenPtr, unsigned int);
-        int (*name_from_pixmap)(PixmapPtr, CARD16 *, CARD32 *);
-        void (*set_drawable_modifiers_func)(ScreenPtr,
-                                            GetDrawableModifiersFuncPtr);
-        int (*shareable_fd_from_pixmap)(ScreenPtr, PixmapPtr, CARD16 *,
-                                        CARD32 *);
-        Bool (*supports_pixmap_import_export)(ScreenPtr);
-        XF86VideoAdaptorPtr (*xv_init)(ScreenPtr, int);
-        const char *(*egl_get_driver_name)(ScreenPtr);
-    } glamor;
-#endif
 } modesettingRec, *modesettingPtr;
-
-#define glamor_finish(screen) ms->glamor.finish(screen)
 
 #define modesettingPTR(p) ((modesettingPtr)((p)->driverPrivate))
 modesettingEntPtr ms_ent_priv(ScrnInfoPtr scrn);
@@ -200,7 +146,7 @@ void ms_drm_abort(ScrnInfoPtr scrn,
                   void *match_data);
 void ms_drm_abort_seq(ScrnInfoPtr scrn, uint32_t seq);
 
-Bool xf86_crtc_on(xf86CrtcPtr crtc);
+Bool ms_crtc_on(xf86CrtcPtr crtc);
 
 xf86CrtcPtr ms_dri2_crtc_covering_drawable(DrawablePtr pDraw);
 RRCrtcPtr   ms_randr_crtc_covering_drawable(DrawablePtr pDraw);
@@ -233,11 +179,8 @@ Bool ms_do_pageflip(ScreenPtr screen,
                     int ref_crtc_vblank_pipe,
                     Bool async,
                     ms_pageflip_handler_proc pageflip_handler,
-                    ms_pageflip_abort_proc pageflip_abort,
-                    const char *log_prefix);
+                    ms_pageflip_abort_proc pageflip_abort);
 
 #endif
 
 int ms_flush_drm_events(ScreenPtr screen);
-Bool ms_window_has_variable_refresh(modesettingPtr ms, WindowPtr win);
-void ms_present_set_screen_vrr(ScrnInfoPtr scrn, Bool vrr_enabled);

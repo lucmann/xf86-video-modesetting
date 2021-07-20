@@ -25,8 +25,9 @@
 #endif
 
 #include <poll.h>
+#include <xorg-server.h>
 #include <xf86drm.h>
-#include "xorg-server.h"
+
 #include "driver.h"
 
 /*
@@ -85,7 +86,7 @@ struct ms_flipdata {
 };
 
 /*
- * Per crtc pageflipping information,
+ * Per crtc pageflipping infomation,
  * These are submitted to the queuing code
  * one of them per crtc per flip.
  */
@@ -219,7 +220,7 @@ queue_flip_on_crtc(ScreenPtr screen, xf86CrtcPtr crtc,
         xf86DrvMsg(scrn->scrnIndex, X_WARNING, "flip queue retry\n");
     }
 
-    /* The page flip succeeded. */
+    /* The page flip succeded. */
     return TRUE;
 }
 
@@ -231,8 +232,7 @@ ms_do_pageflip(ScreenPtr screen,
                int ref_crtc_vblank_pipe,
                Bool async,
                ms_pageflip_handler_proc pageflip_handler,
-               ms_pageflip_abort_proc pageflip_abort,
-               const char *log_prefix)
+               ms_pageflip_abort_proc pageflip_abort)
 {
 #ifndef GLAMOR_HAS_GBM
     return FALSE;
@@ -244,15 +244,14 @@ ms_do_pageflip(ScreenPtr screen,
     uint32_t flags;
     int i;
     struct ms_flipdata *flipdata;
-    ms->glamor.block_handler(screen);
+    glamor_block_handler(screen);
 
-    new_front_bo.gbm = ms->glamor.gbm_bo_from_pixmap(screen, new_front);
+    new_front_bo.gbm = glamor_gbm_bo_from_pixmap(screen, new_front);
     new_front_bo.dumb = NULL;
 
     if (!new_front_bo.gbm) {
         xf86DrvMsg(scrn->scrnIndex, X_ERROR,
-                   "%s: Failed to get GBM BO for flip to new front.\n",
-                   log_prefix);
+                   "Failed to get GBM bo for flip to new front.\n");
         return FALSE;
     }
 
@@ -260,7 +259,7 @@ ms_do_pageflip(ScreenPtr screen,
     if (!flipdata) {
         drmmode_bo_destroy(&ms->drmmode, &new_front_bo);
         xf86DrvMsg(scrn->scrnIndex, X_ERROR,
-                   "%s: Failed to allocate flipdata.\n", log_prefix);
+                   "Failed to allocate flipdata.\n");
         return FALSE;
     }
 
@@ -273,7 +272,7 @@ ms_do_pageflip(ScreenPtr screen,
      * Take a local reference on flipdata.
      * if the first flip fails, the sequence abort
      * code will free the crtc flip data, and drop
-     * its reference which would cause this to be
+     * it's reference which would cause this to be
      * freed when we still required it.
      */
     flipdata->flip_count++;
@@ -284,18 +283,8 @@ ms_do_pageflip(ScreenPtr screen,
     new_front_bo.width = new_front->drawable.width;
     new_front_bo.height = new_front->drawable.height;
     if (drmmode_bo_import(&ms->drmmode, &new_front_bo,
-                          &ms->drmmode.fb_id)) {
-        if (!ms->drmmode.flip_bo_import_failed) {
-            xf86DrvMsg(scrn->scrnIndex, X_WARNING, "%s: Import BO failed: %s\n",
-                       log_prefix, strerror(errno));
-            ms->drmmode.flip_bo_import_failed = TRUE;
-        }
+                          &ms->drmmode.fb_id))
         goto error_out;
-    } else {
-        if (ms->drmmode.flip_bo_import_failed &&
-            new_front != screen->GetScreenPixmap(screen))
-            ms->drmmode.flip_bo_import_failed = FALSE;
-    }
 
     flags = DRM_MODE_PAGE_FLIP_EVENT;
     if (async)
@@ -313,15 +302,12 @@ ms_do_pageflip(ScreenPtr screen,
     for (i = 0; i < config->num_crtc; i++) {
         xf86CrtcPtr crtc = config->crtc[i];
 
-        if (!xf86_crtc_on(crtc))
+        if (!ms_crtc_on(crtc))
             continue;
 
         if (!queue_flip_on_crtc(screen, crtc, flipdata,
                                 ref_crtc_vblank_pipe,
                                 flags)) {
-            xf86DrvMsg(scrn->scrnIndex, X_WARNING,
-                       "%s: Queue flip on CRTC %d failed: %s\n",
-                       log_prefix, i, strerror(errno));
             goto error_undo;
         }
     }
@@ -351,6 +337,8 @@ error_undo:
     }
 
 error_out:
+    xf86DrvMsg(scrn->scrnIndex, X_WARNING, "Page flip failed: %s\n",
+               strerror(errno));
     drmmode_bo_destroy(&ms->drmmode, &new_front_bo);
     /* if only the local reference - free the structure,
      * else drop the local reference and return */
